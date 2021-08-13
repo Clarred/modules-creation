@@ -1,18 +1,16 @@
+/**
+ * @MODULE_NAME Doodle.js
+ * @version v2.1.1
+ */
+
 export { 
     Doodle, Rect, Circle, Line, QuadraticCurve, BezierCurve, SimpleRect,
     Picture, PlainText, Group, Utils, addPendingFunction, Coordinate, Size, 
-    WipeCircle, WipeRect, Gradient, Rgb
+    WipeCircle, WipeRect, Gradient, Rgb, exportAsVars
 }
 
-/**
- * nome:   Doodle.js { module version }
- * versão: v2.1
- */
-
 const MAIN_COLOR = "#000000";
-const SEC = 0x3e8;
 const PI = Math.PI;
-const ABS = Math.abs;
 
 class Coordinate{
     #_x; #_y;
@@ -66,8 +64,8 @@ class Rgb{
         this.Red = r;
         this.Green = g;
         this.Blue = b;
-        this.rgb = `rgb(${r},${g},${b})`;
     }
+    get rgb(){ return `rgb(${this.Red},${this.Green},${this.Blue})`;}
 }
 
 class Object2D{
@@ -76,6 +74,8 @@ class Object2D{
         this.position = new Coordinate( x, y );
         this.translated = new Coordinate( 0, 0 );
         this.size = new Size( 0, 0 );
+
+        this.originDistance = new Coordinate( x, y );
         
         this.#istranslated = false;
 
@@ -89,6 +89,13 @@ class Object2D{
             strokeJoin: "miter",
             isStroke: false,
             isFill: true,
+            shadow: {
+                color: "#000",
+                blur: 0,
+                axisX: 0,
+                axisY: 0,
+                hasShadow: false
+            },
             gradient: {
                 strokeGradient:{},
                 fillGradient: {},
@@ -133,6 +140,13 @@ class Object2D{
 
         c.globalAlpha = this.opacity;
 
+        if ( this.style.shadow.hasShadow ){
+            c.shadowColor = this.style.shadow.color;
+            c.shadowBlur = this.style.shadow.blur;
+            c.shadowOffsetX = this.style.shadow.axisX;
+            c.shadowOffsetY = this.style.shadow.axisY;
+        }
+        
         if ( this.style.gradient.hasFillGradient ){
             //c.fillStyle = this.fillGradient;
             let grds = this.style.gradient.fillGradient;
@@ -228,6 +242,30 @@ class Object2D{
         this.style.gradient.disableStrokeGradient();
     }
 
+    setShadow( axisX, axisY, blur, color ){
+        this.style.shadow = {
+            hasShadow: true,
+            color: color,
+            blur: blur,
+            axisX: axisX,
+            axisY: axisY
+        };
+    }
+
+    resetShadow(  ){
+        this.style.shadow = {
+            hasShadow: false,
+            color: "#000",
+            blur: 0,
+            axisX: 0,
+            axisY: 0
+        };
+    }
+
+    removeShadow( ){
+        this.style.shadow.hasShadow = false;
+    }
+
     get istranslated(){ return this.#istranslated; }
     get angle(){ return this.#angle; }
 }
@@ -236,15 +274,25 @@ class Stroke extends Object2D{
     #_coords; #_started;
     constructor( ...coords ){
         super( 0, 0 );
-        coords = coords[0];
+        
+        if ( coords[0][0].__proto__.constructor.name == "Array" ){
+            coords = coords[0][0];
+        }else{
+            coords = coords[0];
+        }
+        
+
+        
         try{
-            if ( coords.length % 2 == 1 ){ throw "Uncaught RangeError: the number of parameters do not stisfy the instanciated class" }
+            if ( coords.length % 2 == 1 ){ throw "Uncaught RangeError: the number of parameters do not satisfy the instanciated class" }
          
             this.#_coords = coords;
             this.#_started = [];
 
             this.close = false;
             this.vertices = []; this.distance = [];
+            this.originDistance = Array();
+
             this.#_startPositioning();
             this.#_positionVertices( );
             this.#_distanceVertices( );
@@ -265,6 +313,7 @@ class Stroke extends Object2D{
             this.YFX(); this.XFY();
 
             this.vertices[0].x = this.vertices[0].x;
+            
 
         }catch( e ){
             console.error( e );
@@ -365,6 +414,9 @@ class Stroke extends Object2D{
             this.vertices[x].onPositionchange   = this.#_adjustPosition.bind(this);
             x++;
         }
+        for( var a = 0; a < this.vertices.length; a++ ){
+            this.originDistance[a] = this.vertices[a].pass();
+        }
     }
     #_distanceVertices( ){
         for ( var a = 0; a < this.vertices.length; a++ ){
@@ -424,11 +476,11 @@ class Stroke extends Object2D{
             self.setRenderProperties( c );
 
             let v = self.vertices;
-            let d = self.distance;
+            let d = self.originDistance;
 
             if ( self.istranslated ){
                 c.save();
-                c.translate( self.position.x, self.position.y );
+                c.translate( self.translated.x, self.translated.y );
                 c.rotate( self.angle );
 
                 c.moveTo( d[0].x, d[0].y );
@@ -465,22 +517,23 @@ class Rect extends Object2D {
     }
     wayToBuild( c, self ){
         if ( self.parentFrame ){
-            var x, y, w, h, tx, ty;
+            var x, y, w, h, tx, ty, odx, ody;
             var style = self.style;
             x = self.position.x;    y = self.position.y;
             w = self.size.width;    h = self.size.height;
             tx = self.translated.x; ty = self.translated.y;
+            odx = self.originDistance.x; ody = self.originDistance.y;
 
             self.setRenderProperties( c );
 
             if ( self.istranslated ){
 
                 c.save();
-                c.translate(x, y);
+                c.translate(tx, ty);
                 c.rotate( self.angle );
 
-                if ( style.isFill ) c.fillRect( tx-w/2, ty-h/2, w, h );
-                if ( style.isStroke ) c.strokeRect( tx-w/2, ty-h/2, w, h );
+                if ( style.isFill ) c.fillRect( odx, ody, w, h );
+                if ( style.isStroke ) c.strokeRect( odx, ody, w, h );
 
                 c.restore();
 
@@ -512,10 +565,10 @@ class Circle extends Object2D{
             
             if ( self.istranslated ){
                 c.save()
-                c.translate( self.position.x, self.position.y );
+                c.translate( self.translated.x, self.translated.y );
                 c.rotate( self.angle );
 
-                c.arc( self.translated.x, self.translated.y, self.size.r, PI*2, 0 );
+                c.arc( self.originDistance.x, self.originDistance.y, self.size.r, PI*2, 0 );
                 c.restore();
             }else{
                 c.arc( self.position.x, self.position.y, self.size.r, PI*2, 0 );
@@ -907,11 +960,39 @@ class Doodle{
         }
         this.attachedObjects = [];
 
+        //ms
+        this.updateTax = 0;
+        this.renderFunction = function(){return 0;};
+        this.intervalHandle = null;
 
         this.#_setContext();
         this._attachTo(parent);
 
     }
+    /**
+     * 
+     * @param {Number} ms time of render update in miliseconds  
+     */
+    updateRenderTax( ms=Number() ){
+        this.updateTax = ms;
+    }
+
+    renderAllComponents(  ){
+        try{
+            if ( this.intervalHandle == null ){
+                if ( this.renderFunction == function(){return 0;} || this.updateTax == 0 ){
+                    throw "Necessary to define update tax and/or render function to procced\nRender Function: "+this.renderFunction+"\nUpdate Tax: "+this.updateTax+"ms";
+                }else{
+                    this.intervalHandle = setInterval( this.renderFunction, this.updateTax );
+                }            
+            }else{
+                throw "Already handling the interval";
+            }
+        }catch( e ){
+            console.error( e );
+        }
+    }
+
     _setPath( f, _self ){
         this.#_context.beginPath();
         f( this.#_context, _self );
@@ -938,6 +1019,16 @@ class Doodle{
         }
     }
 
+    addFromObject( object ){
+        for ( var obj of Object.values( object ) ){ this.add( obj ); }
+    }
+
+    addFromArray( array ){
+        for ( var obj of array ){
+            this.add( obj );
+        }
+    }
+
     WatchFullScreen(){
         this.width = innerWidth;
         this.height = innerHeight;
@@ -957,6 +1048,10 @@ class Doodle{
         }
         if ( hasInto ){ this.attachedObjects.splice( atIndex, 1 ); }
         else{ throw "Not added to the Doodle" }
+    }
+
+    removeAll(){
+        this.attachedObjects = Array();
     }
 
     #setWidth ( w ){ this.#_width = w; }
@@ -1014,6 +1109,16 @@ class Doodle{
 
     #_setContext (){ this.#_context = this.Frame.getContext("2d"); }
     getContext(){ return this.#_context; }
+
+}
+
+function exportAsVars( obj, onexport=function(e){}){
+
+    for ( var a = 0; a < Object.keys(obj).length; a++ ){
+        let k = Object.keys(obj)[a];    let v = Object.values(obj)[a];
+        window[k] = v;
+        onexport( v, a );
+    }
 
 }
 
